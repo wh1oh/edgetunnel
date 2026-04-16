@@ -2,15 +2,18 @@ name: Auto Sync Fork (Keep Commits & Exclude Workflows)
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 0 点
-  workflow_dispatch:
+    - cron: '0 0 * * *'   # 每天 UTC 0 点
+  workflow_dispatch:       # 支持手动触发
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # 强制使用 Node.js 24
+
     steps:
       - name: Checkout fork
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3  # 最新 v3 稳定版
         with:
           ref: main
           fetch-depth: 0
@@ -29,18 +32,13 @@ jobs:
             exit 0
           fi
 
-      - name: Merge upstream changes excluding workflows
+      - name: Merge upstream excluding workflows and auto-resolve conflicts
         run: |
-          # 创建临时分支从 upstream/main
           git checkout -b upstream-temp upstream/main
-          # 删除 workflow 文件，避免覆盖
           git rm -r --cached .github/workflows || true
           git commit -m "Remove workflows from upstream temp" || true
-          # 回到 fork main
           git checkout main
-          # 合并临时分支
-          git merge upstream-temp --allow-unrelated-histories -m "Merge upstream changes excluding workflows"
-          # 删除临时分支
+          git merge upstream-temp -X theirs -m "Merge upstream changes excluding workflows, auto-resolve conflicts"
           git branch -D upstream-temp
 
       - name: Push changes to fork
