@@ -17,6 +17,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set Git identity
         run: |
@@ -29,44 +30,35 @@ jobs:
           git fetch upstream
 
       - name: Check for upstream updates
+        id: check
         run: |
           LOCAL=$(git rev-parse main)
           UPSTREAM=$(git rev-parse upstream/main)
-
           if [ "$LOCAL" = "$UPSTREAM" ]; then
-            echo "No updates from upstream. Exiting."
-            exit 0
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Auto-sync upstream changes excluding workflows
+      - name: Sync upstream excluding workflows
+        if: steps.check.outputs.skip == 'false'
         run: |
-          # 暂存自己的 workflows，避免切换分支时报错
-          git stash push -- .github/workflows || true
+          # 备份自己的 workflows 到临时目录
+          mkdir -p /tmp/my-workflows
+          cp -r .github/workflows/. /tmp/my-workflows/
 
-          # 创建临时分支
-          git checkout -b upstream-temp upstream/main
+          # 合并 upstream，冲突全部采用 upstream
+          git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
 
-          # 从临时分支索引中移除 workflows，但不提交
-          git rm -r --cached .github/workflows || true
+          # 还原自己的 workflows（覆盖 upstream 的）
+          cp -r /tmp/my-workflows/. .github/workflows/
 
-          # 切回 main 分支
-          git checkout main
+          # 暂存所有变更
+          git add -A
 
-          # 恢复自己的 workflows 文件
-          git stash pop || true
-
-          # 合并 upstream，冲突时优先采用 upstream 内容
-          git merge upstream-temp -X theirs --no-commit
-
-          # 再次确保保留自己的 workflows
-          git restore --source=HEAD --staged --worktree .github/workflows || true
-
-          # 提交最终同步结果
-          git commit -m "Auto-sync upstream changes (excluding workflows)" || echo "No changes to commit"
-
-          # 删除临时分支
-          git branch -D upstream-temp
+          # 提交
+          git commit -m "Auto-sync upstream changes (excluding workflows)" || echo "Nothing to commit"
 
       - name: Push changes to fork
-        run: |
-          git push origin main
+        if: steps.check.outputs.skip == 'false'
+        run: git push origin main
