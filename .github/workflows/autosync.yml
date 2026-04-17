@@ -1,8 +1,8 @@
-name: Auto Sync Fork (Auto-resolve Conflicts, Exclude Workflows)
+name: Manual Sync Fork (Auto-resolve Conflicts, Exclude Workflows)
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
+  #schedule:
+    #- cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
