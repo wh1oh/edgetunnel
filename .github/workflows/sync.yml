@@ -1,8 +1,10 @@
 name: Manual Sync Fork (Auto-resolve Conflicts, Exclude Workflows)
 
 on:
+  # Run daily at 00:00 UTC (08:00 Beijing time)
   #schedule:
     #- cron: '0 0 * * *'
+
   workflow_dispatch:
 
 permissions:
@@ -11,12 +13,10 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout fork
-        uses: actions/checkout@main
+        uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
@@ -37,6 +37,7 @@ jobs:
         run: |
           LOCAL=$(git rev-parse main)
           UPSTREAM=$(git rev-parse upstream/main)
+
           if [ "$LOCAL" = "$UPSTREAM" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
@@ -46,22 +47,20 @@ jobs:
       - name: Sync upstream excluding workflows
         if: steps.check.outputs.skip == 'false'
         run: |
-          # 备份自己的 workflows 到临时目录
+          # Backup local workflows
           mkdir -p /tmp/my-workflows
           cp -r .github/workflows/. /tmp/my-workflows/
 
-          # 合并 upstream，冲突全部采用 upstream
+          # Merge upstream changes (prefer upstream on conflicts)
           git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
 
-          # 还原自己的 workflows（覆盖 upstream 的）
+          # Restore local workflows (prevent overwrite by upstream)
           cp -r /tmp/my-workflows/. .github/workflows/
 
-          # 暂存所有变更
+          # Commit changes
           git add -A
-
-          # 提交
           git commit -m "Auto-sync upstream changes (excluding workflows)" || echo "Nothing to commit"
 
-      - name: Push changes to fork
+      - name: Push changes
         if: steps.check.outputs.skip == 'false'
         run: git push origin main
