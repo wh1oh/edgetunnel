@@ -55,6 +55,8 @@ jobs:
           git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
 
           # Restore local workflows (prevent overwrite by upstream)
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
           cp -r /tmp/my-workflows/. .github/workflows/
 
           # Commit changes
