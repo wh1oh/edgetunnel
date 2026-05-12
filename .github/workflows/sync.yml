@@ -59,6 +59,7 @@ jobs:
           git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
 
           # 4. Extract upstream workflows OUTSIDE .github (IMPORTANT FIX)
+          rm -rf upstream-workflows
           mkdir -p upstream-workflows
 
           git ls-tree -r upstream/main --name-only \
