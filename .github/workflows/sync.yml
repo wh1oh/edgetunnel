@@ -47,20 +47,41 @@ jobs:
       - name: Sync upstream excluding workflows
         if: steps.check.outputs.skip == 'false'
         run: |
-          # Backup local workflows
-          mkdir -p /tmp/my-workflows
-          cp -r .github/workflows/. /tmp/my-workflows/
+          set -e
 
-          # Merge upstream changes (prefer upstream on conflicts)
+          # 1. Backup local workflows
+          mkdir -p /tmp/local-workflows
+          if [ -d .github/workflows ]; then
+            cp -r .github/workflows/.yaml /tmp/local-workflows/
+          fi
+
+          # 2. Remove workflows before merge (prevent contamination)
+          rm -rf .github/workflows
+
+          # 3. Merge upstream safely
           git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
 
-          # Restore local workflows (prevent overwrite by upstream)
-          rm -rf .github/workflows
-          mkdir -p .github/workflows
-          cp -r /tmp/my-workflows/. .github/workflows/
+          # 4. Extract upstream workflows (directly from git objects, NOT working tree)
+          mkdir -p .github/workflows/backup
 
-          # Commit changes
+          git ls-tree -r upstream/main --name-only \
+            | grep '^.github/workflows/' \
+            | while read f; do
+                mkdir -p ".github/workflows/backup"
+                git show "upstream/main:$f" > ".github/workflows/backup/$(basename "$f")" || true
+              done
+
+          # 5. Restore local workflows
+          if [ -d /tmp/local-workflows ]; then
+            mkdir -p .github/workflows
+            cp -r /tmp/local-workflows/. .github/workflows/
+          fi
+
+          # 6. Commit ONLY non-workflow changes
           git add -A
+          git reset .github/workflows || true
+          git add -A
+
           git commit -m "Auto-sync upstream changes (excluding workflows)" || echo "Nothing to commit"
 
       - name: Push changes
