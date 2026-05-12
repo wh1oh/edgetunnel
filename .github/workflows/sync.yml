@@ -1,10 +1,6 @@
 name: Manual Sync Fork (Auto-resolve Conflicts, Exclude Workflows)
 
 on:
-  # Run daily at 00:00 UTC (08:00 Beijing time)
-  #schedule:
-    #- cron: '0 0 * * *'
-
   workflow_dispatch:
 
 permissions:
@@ -49,40 +45,41 @@ jobs:
         run: |
           set -e
 
-          # 1. Backup local workflows
+          # 1. Backup local workflows (file-level only)
           mkdir -p /tmp/local-workflows
+
           if [ -d .github/workflows ]; then
-            find .github/workflows \
-              -maxdepth 1 \
-              -type f \( -name "*.yml" -o -name "*.yaml" \) \
-              -exec cp {} /tmp/local-workflows/ \;
+             cp -r .github/workflows/. /tmp/local-workflows/
           fi
 
-          # 2. Remove workflows before merge (prevent contamination)
+          # 2. Remove workflows before merge (prevents conflict)
           rm -rf .github/workflows
 
           # 3. Merge upstream safely
           git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
 
-          # 4. Extract upstream workflows (directly from git objects, NOT working tree)
-          mkdir -p .github/workflows/backup
+          # 4. Extract upstream workflows OUTSIDE .github (IMPORTANT FIX)
+          mkdir -p upstream-workflows
 
           git ls-tree -r upstream/main --name-only \
             | grep '^.github/workflows/' \
             | while read f; do
-                mkdir -p ".github/workflows/backup"
-                git show "upstream/main:$f" > ".github/workflows/backup/$(basename "$f")" || true
+                git show "upstream/main:$f" > "upstream-workflows/$(basename "$f")" || true
               done
 
-          # 5. Restore local workflows
+          # 5. Restore ONLY local workflows
+          mkdir -p .github/workflows
+
           if [ -d /tmp/local-workflows ]; then
-            mkdir -p .github/workflows
-            cp -r /tmp/local-workflows/. .github/workflows/
+            cp /tmp/local-workflows/* .github/workflows/ 2>/dev/null || true
           fi
 
           # 6. Commit ONLY non-workflow changes
           git add -A
+
+          # ensure workflows are not staged
           git reset .github/workflows || true
+
           git add -A
 
           git commit -m "Auto-sync upstream changes (excluding workflows)" || echo "Nothing to commit"
