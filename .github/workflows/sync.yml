@@ -2,6 +2,15 @@ name: Manual Sync Fork (Auto-resolve Conflicts, Exclude Workflows)
 
 on:
   workflow_dispatch:
+    inputs:
+      upstream_url:
+        description: '上游仓库地址'
+        required: true
+        default: 'https://github.com/cmliu/edgetunnel.git'
+      branch:
+        description: '要同步的分支'
+        required: true
+        default: 'main'
 
 permissions:
   contents: write
@@ -14,7 +23,7 @@ jobs:
       - name: Checkout fork
         uses: actions/checkout@v6.0.2
         with:
-          ref: main
+          ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -25,14 +34,15 @@ jobs:
 
       - name: Add upstream remote
         run: |
-          git remote add upstream https://github.com/cmliu/edgetunnel.git || true
+          git remote add upstream ${{ github.event.inputs.upstream_url }} || true
           git fetch upstream
 
       - name: Check for upstream updates
         id: check
         run: |
-          LOCAL=$(git rev-parse main)
-          UPSTREAM=$(git rev-parse upstream/main)
+          BRANCH=${{ github.event.inputs.branch }}
+          LOCAL=$(git rev-parse ${BRANCH})
+          UPSTREAM=$(git rev-parse upstream/${BRANCH})
 
           if [ "$LOCAL" = "$UPSTREAM" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -44,28 +54,29 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: |
           set -e
+          BRANCH=${{ github.event.inputs.branch }}
 
           # 1. Backup local workflows (file-level only)
           mkdir -p /tmp/local-workflows
 
           if [ -d .github/workflows ]; then
-             cp -r .github/workflows/. /tmp/local-workflows/
+            cp -r .github/workflows/. /tmp/local-workflows/
           fi
 
           # 2. Remove workflows before merge (prevents conflict)
           rm -rf .github/workflows
 
           # 3. Merge upstream safely
-          git merge upstream/main -X theirs --no-commit --allow-unrelated-histories || true
+          git merge upstream/${BRANCH} -X theirs --no-commit --allow-unrelated-histories || true
 
           # 4. Extract upstream workflows OUTSIDE .github (IMPORTANT FIX)
           rm -rf upstream-workflows
           mkdir -p upstream-workflows
 
-          git ls-tree -r upstream/main --name-only \
+          git ls-tree -r upstream/${BRANCH} --name-only \
             | grep '^.github/workflows/' \
             | while read f; do
-                git show "upstream/main:$f" > "upstream-workflows/$(basename "$f")" || true
+                git show "upstream/${BRANCH}:$f" > "upstream-workflows/$(basename "$f")" || true
               done
 
           # 5. Restore ONLY local workflows
@@ -78,13 +89,13 @@ jobs:
           # 6. Commit ONLY non-workflow changes
           git add -A
 
-          # ensure workflows are not staged
+          # Ensure workflows are not staged
           git reset .github/workflows || true
 
           git add -A
 
-          git commit -m "Auto-sync upstream changes (excluding workflows)" || echo "Nothing to commit"
+          git commit -m "Auto-sync upstream/${BRANCH} changes (excluding workflows)" || echo "Nothing to commit"
 
       - name: Push changes
         if: steps.check.outputs.skip == 'false'
-        run: git push origin main
+        run: git push origin ${{ github.event.inputs.branch }}
