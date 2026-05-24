@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       upstream_url:
-        description: '上游仓库地址'
+        description: 'Upstream repository URL'
         required: true
         default: 'https://github.com/cmliu/edgetunnel.git'
       branch:
-        description: '要同步的分支'
+        description: 'Branch to sync'
         required: true
         default: 'main'
 
@@ -18,6 +18,10 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+
+    env:
+      BRANCH: ${{ github.event.inputs.branch }}
+      UPSTREAM_URL: ${{ github.event.inputs.upstream_url }}
 
     steps:
       - name: Checkout fork
@@ -34,31 +38,36 @@ jobs:
 
       - name: Add upstream remote
         run: |
-          git remote add upstream ${{ github.event.inputs.upstream_url }} || true
+          git remote add upstream "${UPSTREAM_URL}" || true
           git fetch upstream
 
       - name: Check for upstream updates
         id: check
         run: |
-          BRANCH=${{ github.event.inputs.branch }}
-          LOCAL=$(git rev-parse ${BRANCH})
-          UPSTREAM=$(git rev-parse upstream/${BRANCH})
+          # Check if upstream branch exists
+          if ! git rev-parse "upstream/${BRANCH}" > /dev/null 2>&1; then
+            echo "::error::upstream/${BRANCH} does not exist, please verify the branch name or upstream URL"
+            exit 1
+          fi
+
+          LOCAL=$(git rev-parse "${BRANCH}")
+          UPSTREAM=$(git rev-parse "upstream/${BRANCH}")
 
           if [ "$LOCAL" = "$UPSTREAM" ]; then
             echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Local branch is up to date with upstream, skipping sync"
           else
             echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Upstream changes detected, proceeding with sync"
           fi
 
       - name: Sync upstream excluding workflows
         if: steps.check.outputs.skip == 'false'
         run: |
           set -e
-          BRANCH=${{ github.event.inputs.branch }}
 
-          # 1. Backup local workflows (file-level only)
+          # 1. Backup local workflows
           mkdir -p /tmp/local-workflows
-
           if [ -d .github/workflows ]; then
             cp -r .github/workflows/. /tmp/local-workflows/
           fi
@@ -67,13 +76,16 @@ jobs:
           rm -rf .github/workflows
 
           # 3. Merge upstream safely
-          git merge upstream/${BRANCH} -X theirs --no-commit --allow-unrelated-histories || true
+          if ! git merge "upstream/${BRANCH}" -X theirs --no-commit --allow-unrelated-histories; then
+            echo "::error::Merge failed, aborting sync"
+            git merge --abort
+            exit 1
+          fi
 
-          # 4. Extract upstream workflows OUTSIDE .github (IMPORTANT FIX)
+          # 4. Extract upstream workflows outside .github
           rm -rf upstream-workflows
           mkdir -p upstream-workflows
-
-          git ls-tree -r upstream/${BRANCH} --name-only \
+          git ls-tree -r "upstream/${BRANCH}" --name-only \
             | grep '^.github/workflows/' \
             | while read f; do
                 git show "upstream/${BRANCH}:$f" > "upstream-workflows/$(basename "$f")" || true
@@ -81,21 +93,27 @@ jobs:
 
           # 5. Restore ONLY local workflows
           mkdir -p .github/workflows
-
           if [ -d /tmp/local-workflows ]; then
             cp /tmp/local-workflows/* .github/workflows/ 2>/dev/null || true
           fi
 
-          # 6. Commit ONLY non-workflow changes
+          # 6. Stage all, then unstage workflows
           git add -A
-
-          # Ensure workflows are not staged
           git reset .github/workflows || true
-
           git add -A
 
           git commit -m "Auto-sync upstream/${BRANCH} changes (excluding workflows)" || echo "Nothing to commit"
 
       - name: Push changes
         if: steps.check.outputs.skip == 'false'
-        run: git push origin ${{ github.event.inputs.branch }}
+        run: git push origin "${BRANCH}"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${BRANCH} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Upstream URL | ${UPSTREAM_URL} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skipped | ${{ steps.check.outputs.skip }} |" >> $GITHUB_STEP_SUMMARY
