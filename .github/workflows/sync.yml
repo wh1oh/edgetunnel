@@ -104,6 +104,27 @@ jobs:
 
           git commit -m "Auto-sync upstream/${BRANCH} changes (excluding workflows)" || echo "Nothing to commit"
 
+      - name: Patch _worker.js Pages静态页面
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          set -e
+          FILE="_worker.js"
+          OLD="const Pages静态页面 = 'https://edt-pages.github.io';"
+          NEW="const Pages静态页面 = 'https://wh1oh.github.io/edt-pages';"
+
+          if [ -f "$FILE" ]; then
+            if grep -qF "$OLD" "$FILE"; then
+              sed -i "s|${OLD}|${NEW}|g" "$FILE"
+              echo "Patched: replaced Pages静态页面 URL in ${FILE}"
+            else
+              echo "::warning::Target string not found in ${FILE}, skipping patch"
+            fi
+            git add "$FILE"
+            git commit -m "Patch: update Pages静态页面 URL to 33h.github.io/edt-pages" || echo "Nothing to commit"
+          else
+            echo "::warning::${FILE} not found, skipping patch"
+          fi
+
       - name: Push changes
         if: steps.check.outputs.skip == 'false'
         run: git push origin "${BRANCH}"
