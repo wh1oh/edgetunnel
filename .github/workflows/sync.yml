@@ -120,7 +120,7 @@ jobs:
               echo "::warning::Target string not found in ${FILE}, skipping patch"
             fi
             git add "$FILE"
-            git commit -m "Patch: update Pages静态页面 URL to 33h.github.io/edt-pages" || echo "Nothing to commit"
+            git commit -m "Patch: update Pages静态页面 URL to https://wh1oh.github.io/edt-pages" || echo "Nothing to commit"
           else
             echo "::warning::${FILE} not found, skipping patch"
           fi
